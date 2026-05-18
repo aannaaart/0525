@@ -31,7 +31,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none; /* 讓滑鼠點擊穿透，不干擾遊戲 */
+            pointer-events: none; /* 讓滑鼠點擊穿透 */
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -66,9 +66,8 @@
 <body>
 
     <div id="game-container">
-        <!-- 物理引擎畫面會渲染在這裡 -->
         <div id="ui-layer">
-            <div class="hud-text">指令: W A S D 或 上 下 左 右 | 目前狀態: <span id="status">大家一起操控中!</span></div>
+            <div class="hud-text">指令: A D 或 左 右 | 目前狀態: <span id="status">大家一起操控中!</span></div>
             <div id="timer" class="hud-text">剩餘時間: 30s</div>
         </div>
         <div id="announcement">🎉 恭喜抓到神獸布偶！<br><span style="font-size: 24px; color: #fff;">記得點擊下方連結加入願望清單喔！</span></div>
@@ -76,9 +75,10 @@
 
     <script>
         // --- 1. 設定區 ---
-        const TWITCH_CHANNEL = 'maoramei'; // 💡 請改成你的 Twitch 頻道名稱（小寫）
+        // 💡 請改成你的 Twitch 頻道名稱（必須全部小寫，例如 'aannaaart'）
+        const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; // 每回合時間 (秒)
-        const CLAW_SPEED = 8;  // 觀眾輸入指令時夾子移動的速度
+        const CLAW_SPEED = 10; // 觀眾輸入指令時夾子移動的速度
 
         // --- 2. 初始化 Matter.js 物理引擎 ---
         const { Engine, Render, Runner, Bodies, Composite, Constraint, Body } = Matter;
@@ -91,7 +91,7 @@
             options: {
                 width: 800,
                 height: 600,
-                wireframes: false, // 關閉線框模式，顯示實心色彩
+                wireframes: false, // 顯示實心色彩
                 background: '#2f3542'
             }
         });
@@ -108,21 +108,18 @@
         Composite.add(world, [ground, leftWall, rightWall, binWall]);
 
         // --- 4. 建立夾子系統 (Claw) ---
-        // 夾子天車基座 (只在 X 軸移動)
         const clawBase = Bodies.rectangle(400, 50, 60, 20, { 
             isStatic: true, 
-            collisionFilter: { group: -1 }, // 不與內部物件碰撞
+            collisionFilter: { group: -1 }, 
             render: { fillStyle: '#ff7f50' } 
         });
         
-        // 夾子本體 (抓取點)
         const clawBody = Bodies.rectangle(400, 120, 40, 40, { 
-            inertia: Infinity, // 防止旋轉
+            inertia: Infinity, 
             collisionFilter: { group: -1 },
             render: { fillStyle: '#ff6b81' } 
         });
 
-        // 用彈性關節(線)把基座和夾子本體連起來 (模擬鋼索)
         const rope = Constraint.create({
             bodyA: clawBase,
             bodyB: clawBody,
@@ -134,14 +131,13 @@
 
         // --- 5. 生成娃娃堆 ---
         function spawnDolls() {
-            // 生成 25 個圓形小布偶，模擬堆疊
             for (let i = 0; i < 25; i++) {
                 const x = 220 + Math.random() * 500;
                 const y = 300 + Math.random() * 200;
                 const colors = ['#1e90ff', '#2ed573', '#ffa502', '#ff4757', '#9b59b6'];
                 const doll = Bodies.circle(x, y, 25, {
                     friction: 0.5,
-                    restitution: 0.2, // 微彈性
+                    restitution: 0.2,
                     render: { fillStyle: colors[Math.floor(Math.random() * colors.length)] }
                 });
                 Composite.add(world, doll);
@@ -174,13 +170,11 @@
             document.getElementById('status').innerText = '下夾中！請稍候...';
             document.getElementById('timer').innerText = `剩餘時間: 0s`;
 
-            // 第一階段：鋼索伸長 (夾子往下衝)
             let dropAnimation = setInterval(() => {
                 if (rope.length < 350) {
                     rope.length += 5;
                 } else {
                     clearInterval(dropAnimation);
-                    // 停留一秒模擬抓取
                     setTimeout(() => { resetClaw(); }, 1500);
                 }
             }, 10);
@@ -188,22 +182,18 @@
 
         // 夾子收回與重置
         function resetClaw() {
-            // 第二階段：鋼索縮回 (夾子往上升)
             let liftAnimation = setInterval(() => {
                 if (rope.length > 70) {
                     rope.length -= 5;
                 } else {
                     clearInterval(liftAnimation);
                     
-                    // 第三階段：天車自動返回左側出貨口
                     let returnAnimation = setInterval(() => {
                         if (clawBase.position.x > 95) {
                             Body.setPosition(clawBase, { x: clawBase.position.x - 4, y: clawBase.position.y });
                             Body.setPosition(clawBody, { x: clawBody.position.x - 4, y: clawBody.position.y });
                         } else {
                             clearInterval(returnAnimation);
-                            
-                            // 演出成功特效（整效果，實際判定可依你後續需求加強）
                             showCelebration();
                         }
                     }, 10);
@@ -217,7 +207,6 @@
             
             setTimeout(() => {
                 announcement.style.display = 'none';
-                // 重置局勢
                 Body.setPosition(clawBase, { x: 400, y: 50 });
                 Body.setPosition(clawBody, { x: 400, y: 120 });
                 rope.length = 70;
@@ -225,23 +214,29 @@
                 isClawDropping = false;
                 document.getElementById('status').innerText = '大家一起操控中!';
                 startTimer();
-            }, 5000); // 秀出成功畫面 5 秒後重置下一局
+            }, 5000); 
         }
 
-        // --- 7. 連接 Twitch 聊天室 (tmi.js) ---
+        // --- 7. 連接 Twitch 聊天室 (已修正 HTTPS 安全加密連線) ---
         const client = new tmi.Client({
+            options: { secure: true }, // 💡 關鍵：強制走 wss 加密通道，解決 GitHub Pages 阻擋問題
             channels: [TWITCH_CHANNEL]
         });
-        client.connect();
+        
+        client.connect().then(() => {
+            console.log("Twitch 聊天室已成功加密連線！");
+        }).catch(err => {
+            console.error("連線失敗：", err);
+        });
 
         client.on('message', (channel, tags, message, self) => {
-            if (self || isClawDropping) return; // 如果是機器人自己或正在下夾，不理會
+            if (self || isClawDropping) return; 
 
             const msg = message.trim().toLowerCase();
             let currentX = clawBase.position.x;
             let currentY = clawBase.position.y;
 
-            // 限制夾子天車的左右移動移動邊界 (不飛出機台)
+            // 限制夾子天車的左右移動移動邊界
             if (msg === 'a' || msg === '左' || msg === '!left') {
                 if (currentX > 50) {
                     Body.setPosition(clawBase, { x: currentX - CLAW_SPEED, y: currentY });
@@ -254,14 +249,6 @@
                     Body.setPosition(clawBody, { x: clawBody.position.x + CLAW_SPEED, y: clawBody.position.y });
                 }
             }
-            
-            // 💡 註：前後移動在 2D 橫向娃娃機中通常對應上下，這裡僅提供左右移動天車。
-            // 如果你想讓觀眾在倒數結束前「提早下夾」，可以把下面這段註解解開：
-            /*
-            if (msg === 's' || msg === '下' || msg === '!drop') {
-                triggerClawDrop();
-            }
-            */
         });
     </script>
 </body>
