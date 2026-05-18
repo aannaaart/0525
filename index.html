@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Twitch Plays 夾娃娃機</title>
-    <!-- 引入 Matter.js 物理引擎與 tmi.js Twitch 聯網庫 -->
+    <!-- 引入 2D 物理引擎 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -75,10 +74,9 @@
 
     <script>
         // --- 1. 設定區 ---
-        // 💡 請改成你的 Twitch 頻道名稱（必須全部小寫，例如 'aannaaart'）
-        const TWITCH_CHANNEL = 'maoramei'; 
+        const TWITCH_CHANNEL = 'maoramei'; // 已自動設定為你的頻道 
         const ROUND_TIME = 30; // 每回合時間 (秒)
-        const CLAW_SPEED = 10; // 觀眾輸入指令時夾子移動的速度
+        const CLAW_SPEED = 12; // 觀眾輸入指令時夾子移動的速度
 
         // --- 2. 初始化 Matter.js 物理引擎 ---
         const { Engine, Render, Runner, Bodies, Composite, Constraint, Body } = Matter;
@@ -103,7 +101,6 @@
         const ground = Bodies.rectangle(400, 590, 800, 20, { isStatic: true, render: { fillStyle: '#747d8c' } });
         const leftWall = Bodies.rectangle(10, 300, 20, 600, { isStatic: true, render: { fillStyle: '#747d8c' } });
         const rightWall = Bodies.rectangle(790, 300, 20, 600, { isStatic: true, render: { fillStyle: '#747d8c' } });
-        // 出貨洞口擋板 (左側留空當洞口)
         const binWall = Bodies.rectangle(180, 500, 15, 160, { isStatic: true, render: { fillStyle: '#a4b0be' } });
         Composite.add(world, [ground, leftWall, rightWall, binWall]);
 
@@ -164,7 +161,6 @@
         }
         startTimer();
 
-        // 觸發下夾子
         function triggerClawDrop() {
             isClawDropping = true;
             document.getElementById('status').innerText = '下夾中！請稍候...';
@@ -180,7 +176,6 @@
             }, 10);
         }
 
-        // 夾子收回與重置
         function resetClaw() {
             let liftAnimation = setInterval(() => {
                 if (rope.length > 70) {
@@ -217,39 +212,63 @@
             }, 5000); 
         }
 
-        // --- 7. 連接 Twitch 聊天室 (已修正 HTTPS 安全加密連線) ---
-        const client = new tmi.Client({
-            options: { secure: true }, // 💡 關鍵：強制走 wss 加密通道，解決 GitHub Pages 阻擋問題
-            channels: [TWITCH_CHANNEL]
-        });
-        
-        client.connect().then(() => {
-            console.log("Twitch 聊天室已成功加密連線！");
-        }).catch(err => {
-            console.error("連線失敗：", err);
-        });
+        // --- 7. WebSocket 聊天室接收處理器 (免外部引入，全內嵌安全版) ---
+        function initTwitchConnection() {
+            const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
 
-        client.on('message', (channel, tags, message, self) => {
-            if (self || isClawDropping) return; 
+            ws.onopen = () => {
+                console.log('已經成功建立加密安全連線到 Twitch!');
+                ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+                ws.send('PASS oauth:justinfan12345'); // 匿名登入，不需憑證
+                ws.send('NICK justinfan12345');
+                ws.send(`JOIN #${TWITCH_CHANNEL}`);
+            };
 
-            const msg = message.trim().toLowerCase();
-            let currentX = clawBase.position.x;
-            let currentY = clawBase.position.y;
-
-            // 限制夾子天車的左右移動移動邊界
-            if (msg === 'a' || msg === '左' || msg === '!left') {
-                if (currentX > 50) {
-                    Body.setPosition(clawBase, { x: currentX - CLAW_SPEED, y: currentY });
-                    Body.setPosition(clawBody, { x: clawBody.position.x - CLAW_SPEED, y: clawBody.position.y });
+            ws.onmessage = (event) => {
+                const rawMessage = event.data;
+                
+                // PING-PONG 保持連線不斷線
+                if (rawMessage.startsWith('PING')) {
+                    ws.send('PONG :tmi.twitch.tv');
+                    return;
                 }
-            }
-            if (msg === 'd' || msg === '右' || msg === '!right') {
-                if (currentX < 750) {
-                    Body.setPosition(clawBase, { x: currentX + CLAW_SPEED, y: currentY });
-                    Body.setPosition(clawBody, { x: clawBody.position.x + CLAW_SPEED, y: clawBody.position.y });
+
+                // 解析聊天室文字指令
+                if (rawMessage.includes('PRIVMSG') && !isClawDropping) {
+                    const match = rawMessage.match(/PRIVMSG #[a-z0-9_]+ :(.+)/);
+                    if (match) {
+                        const msg = match[1].trim().toLowerCase();
+                        let currentX = clawBase.position.x;
+                        let currentY = clawBase.position.y;
+
+                        if (msg === 'a' || msg === '左' || msg === '!left') {
+                            if (currentX > 50) {
+                                Body.setPosition(clawBase, { x: currentX - CLAW_SPEED, y: currentY });
+                                Body.setPosition(clawBody, { x: clawBody.position.x - CLAW_SPEED, y: clawBody.position.y });
+                            }
+                        }
+                        if (msg === 'd' || msg === '右' || msg === '!right') {
+                            if (currentX < 750) {
+                                Body.setPosition(clawBase, { x: currentX + CLAW_SPEED, y: currentY });
+                                Body.setPosition(clawBody, { x: clawBody.position.x + CLAW_SPEED, y: clawBody.position.y });
+                            }
+                        }
+                    }
                 }
-            }
-        });
+            };
+
+            ws.onclose = () => {
+                console.log('與 Twitch 斷開連線，5秒後自動重新連線...');
+                setTimeout(initTwitchConnection, 5000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('連線發生錯誤：', error);
+            };
+        }
+
+        // 啟動連線
+        initTwitchConnection();
     </script>
 </body>
 </html>
