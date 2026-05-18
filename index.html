@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Twitch Plays 擬真微晃夾娃娃機</title>
+    <title>Twitch Plays 瘋狂暴衝大混戰娃娃機</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body {
@@ -64,25 +64,25 @@
 
     <div id="game-container">
         <div id="ui-layer">
-            <div class="hud-text">指令: A D 或 左 右 | 目前狀態: <span id="status">極限瞄準中！</span></div>
+            <div class="hud-text">指令: A D 或 左 右 | 目前狀態: <span id="status">聊天室大混亂拉鋸中！</span></div>
             <div id="timer" class="hud-text">剩餘時間: 30s</div>
         </div>
-        <div id="announcement">🎉 完美抓取！！！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span></div>
+        <div id="announcement">🎉 神之操作！居然抓到了！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span></div>
     </div>
 
     <script>
         // --- 1. 設定區 ---
         const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; 
-        const BASE_SPEED = 7; // 基礎移動速度
+        // 💡 核心改動：將基礎速度從 7 直接拉高到 40！讓天車大幅度暴衝
+        const BASE_SPEED = 40; 
 
         // --- 2. 初始化 Matter.js ---
         const { Engine, Render, Runner, Bodies, Composite, Constraint, Body } = Matter;
         const engine = Engine.create();
         const world = engine.world;
 
-        // 稍微調高物理引擎的重力，讓爪子擺動感更扎實
-        engine.gravity.y = 1.2;
+        engine.gravity.y = 1.5; // 提高重力，讓爪子盪鞦韆時的下墜甩動更猛烈
 
         const render = Render.create({
             element: document.getElementById('game-container'),
@@ -112,8 +112,8 @@
             render: { fillStyle: '#747d8c' } 
         });
         
-        const clawBody = Bodies.rectangle(400, 140, 50, 40, { 
-            frictionAir: 0.05, // 💡 增加空氣阻力，讓隨機晃動的擺動收斂得更自然
+        const clawBody = Bodies.rectangle(400, 150, 50, 40, { 
+            frictionAir: 0.01, // 💡 降低空氣阻力，讓爪子動完後會「持續晃很久」，增加修正難度
             collisionFilter: { group: -1 },
             render: {
                 sprite: {
@@ -124,12 +124,12 @@
             }
         });
 
-        // 降低關節剛性 (stiffness: 0.1)，讓天車動的時候，下面的爪子會因為物理效果產生漂亮的「盪鞦韆」延遲感
+        // 💡 將剛性降到 0.05（極度鬆軟的鋼索），天車一停，爪子會像特技表演一樣大角度甩動
         const rope = Constraint.create({
             bodyA: clawBase,
             bodyB: clawBody,
             pointB: { x: 0, y: -20 },
-            stiffness: 0.1, 
+            stiffness: 0.05, 
             render: { strokeStyle: '#ffffff', lineWidth: 2 }
         });
         Composite.add(world, [clawBase, clawBody, rope]);
@@ -141,9 +141,9 @@
 
             const randomX = 350 + Math.random() * 350; 
             prizeBox = Bodies.rectangle(randomX, 540, 70, 70, {
-                friction: 0.8,
+                friction: 0.9,
                 restitution: 0.0, 
-                density: 0.01,    
+                density: 0.02, // 增加重量，非得完美對準否則絕對抓不起    
                 render: {
                     sprite: {
                         texture: 'prize.png', 
@@ -177,7 +177,7 @@
 
         function triggerClawDrop() {
             isClawDropping = true;
-            document.getElementById('status').innerText = '下夾中！請鎖定畫面！';
+            document.getElementById('status').innerText = '下夾中！看命運的安排！';
             document.getElementById('timer').innerText = `剩餘時間: 0s`;
 
             let dropAnimation = setInterval(() => {
@@ -186,11 +186,11 @@
                 } else {
                     clearInterval(dropAnimation);
                     
-                    // 判定差距（縮小到 22 像素，配合物理擺動，難度提高）
+                    // 判定差距（因為會瘋狂晃動，維持 25 像素容錯，讓有對準甩動最高點時也能抓到）
                     const distanceX = Math.abs(clawBody.position.x - prizeBox.position.x);
                     let catchConstraint = null;
                     
-                    if (distanceX < 22 && clawBody.position.y < prizeBox.position.y) {
+                    if (distanceX < 25 && clawBody.position.y < prizeBox.position.y) {
                         catchConstraint = Constraint.create({
                             bodyA: clawBody,
                             bodyB: prizeBox,
@@ -214,11 +214,10 @@
                     
                     let returnAnimation = setInterval(() => {
                         if (clawBase.position.x > 95) {
-                            Body.setPosition(clawBase, { x: clawBase.position.x - 4, y: clawBase.position.y });
-                            // 升回時強制微調爪子水平位置，確保獎品能跟著走
-                            Body.setPosition(clawBody, { x: clawBody.position.x - 4, y: clawBody.position.y });
+                            Body.setPosition(clawBase, { x: clawBase.position.x - 5, y: clawBase.position.y });
+                            Body.setPosition(clawBody, { x: clawBody.position.x - 5, y: clawBody.position.y });
                             if (catchConstraint) {
-                                Body.setPosition(prizeBox, { x: prizeBox.position.x - 4, y: prizeBox.position.y });
+                                Body.setPosition(prizeBox, { x: prizeBox.position.x - 5, y: prizeBox.position.y });
                             }
                         } else {
                             clearInterval(returnAnimation);
@@ -244,17 +243,17 @@
         function showCelebration(isSuccess) {
             const announcement = document.getElementById('announcement');
             if (isSuccess) {
-                announcement.innerHTML = `🎉 完美抓取！！！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span>`;
+                announcement.innerHTML = `🎉 神之操作！居然抓到了！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span>`;
                 announcement.style.display = 'block';
             } else {
-                announcement.innerHTML = `❌ 殘念！沒對準...<br><span style="font-size: 24px; color: #fff;">下一局即將開始，大家加油！</span>`;
+                announcement.innerHTML = `❌ 殘念爆衝！沒對準...<br><span style="font-size: 24px; color: #fff;">下一局即將開始，大家節奏抓好！</span>`;
                 announcement.style.display = 'block';
             }
             
             setTimeout(() => {
                 announcement.style.display = 'none';
                 Body.setPosition(clawBase, { x: 400, y: 50 });
-                Body.setPosition(clawBody, { x: 400, y: 140 });
+                Body.setPosition(clawBody, { x: 400, y: 150 });
                 rope.length = 70;
                 timeLeft = ROUND_TIME;
                 isClawDropping = false;
@@ -264,7 +263,7 @@
             }, 5000); 
         }
 
-        // --- 7. WebSocket 聊天室與隨機晃動演算法 ---
+        // --- 7. WebSocket 聊天室與瘋狂暴衝演算法 ---
         function initTwitchConnection() {
             const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
 
@@ -289,26 +288,22 @@
                         let currentX = clawBase.position.x;
                         let currentY = clawBase.position.y;
 
-                        // 💡 核心改動：加入隨機性微調
-                        // 隨機乘數在 0.6 ~ 1.4 之間，讓每次移動步長都不太一樣
-                        const randomMultiplier = 0.6 + Math.random() * 0.8;
+                        // 💡 暴衝隨機性：每次移動的幅度在 0.8 到 1.8 倍基礎速度之間隨機跳動！
+                        const randomMultiplier = 0.8 + Math.random() * 1.0;
                         let finalSpeed = BASE_SPEED * randomMultiplier;
 
-                        // 10% 的機率爪子會因為慣性產生「微幅反彈」的反向微小作用力
-                        let wobble = (Math.random() < 0.10) ? -2 : 0;
-
+                        // 移動時給予爪子強大的物理衝擊力，讓它動起來時瘋狂大幅度晃動
                         if (msg === 'a' || msg === '左' || msg === '!left') {
                             if (currentX > 50) {
-                                // 移動天車基座
                                 Body.setPosition(clawBase, { x: currentX - finalSpeed, y: currentY });
-                                // 對下方的物理爪子施加一個側向的力，製造漂亮的晃動感！
-                                Body.setVelocity(clawBody, { x: -(finalSpeed / 2) - wobble, y: clawBody.velocity.y });
+                                // 給爪子一個巨大的反向加速度，製造猛烈的甩動效果
+                                Body.setVelocity(clawBody, { x: -18, y: clawBody.velocity.y });
                             }
                         }
                         if (msg === 'd' || msg === 'right' || msg === '右' || msg === '!right') {
                             if (currentX < 750) {
                                 Body.setPosition(clawBase, { x: currentX + finalSpeed, y: currentY });
-                                Body.setVelocity(clawBody, { x: (finalSpeed / 2) + wobble, y: clawBody.velocity.y });
+                                Body.setVelocity(clawBody, { x: 18, y: clawBody.velocity.y });
                             }
                         }
                     }
