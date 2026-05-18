@@ -2,8 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Twitch Plays 夾娃娃機</title>
-    <!-- 引入 2D 物理引擎 -->
+    <title>Twitch Plays 擬真微晃夾娃娃機</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body {
@@ -23,14 +22,13 @@
             height: 600px;
             box-shadow: 0 0 20px rgba(0,0,0,0.8);
         }
-        /* UI 介面樣式 */
         #ui-layer {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none; /* 讓滑鼠點擊穿透 */
+            pointer-events: none;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -66,22 +64,25 @@
 
     <div id="game-container">
         <div id="ui-layer">
-            <div class="hud-text">指令: A D 或 左 右 | 目前狀態: <span id="status">大家一起操控中!</span></div>
+            <div class="hud-text">指令: A D 或 左 右 | 目前狀態: <span id="status">極限瞄準中！</span></div>
             <div id="timer" class="hud-text">剩餘時間: 30s</div>
         </div>
-        <div id="announcement">🎉 恭喜抓到神獸布偶！<br><span style="font-size: 24px; color: #fff;">記得點擊下方連結加入願望清單喔！</span></div>
+        <div id="announcement">🎉 完美抓取！！！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span></div>
     </div>
 
     <script>
         // --- 1. 設定區 ---
-        const TWITCH_CHANNEL = 'maoramei'; // 已自動設定為你的頻道 
-        const ROUND_TIME = 30; // 每回合時間 (秒)
-        const CLAW_SPEED = 12; // 觀眾輸入指令時夾子移動的速度
+        const TWITCH_CHANNEL = 'maoramei'; 
+        const ROUND_TIME = 30; 
+        const BASE_SPEED = 7; // 基礎移動速度
 
-        // --- 2. 初始化 Matter.js 物理引擎 ---
+        // --- 2. 初始化 Matter.js ---
         const { Engine, Render, Runner, Bodies, Composite, Constraint, Body } = Matter;
         const engine = Engine.create();
         const world = engine.world;
+
+        // 稍微調高物理引擎的重力，讓爪子擺動感更扎實
+        engine.gravity.y = 1.2;
 
         const render = Render.create({
             element: document.getElementById('game-container'),
@@ -89,7 +90,7 @@
             options: {
                 width: 800,
                 height: 600,
-                wireframes: false, // 顯示實心色彩
+                wireframes: false, 
                 background: '#2f3542'
             }
         });
@@ -97,52 +98,65 @@
         const runner = Runner.create();
         Runner.run(runner, engine);
 
-        // --- 3. 建立娃娃機邊界與洞口 ---
+        // --- 3. 建立機台邊界與出貨洞口 ---
         const ground = Bodies.rectangle(400, 590, 800, 20, { isStatic: true, render: { fillStyle: '#747d8c' } });
         const leftWall = Bodies.rectangle(10, 300, 20, 600, { isStatic: true, render: { fillStyle: '#747d8c' } });
         const rightWall = Bodies.rectangle(790, 300, 20, 600, { isStatic: true, render: { fillStyle: '#747d8c' } });
         const binWall = Bodies.rectangle(180, 500, 15, 160, { isStatic: true, render: { fillStyle: '#a4b0be' } });
         Composite.add(world, [ground, leftWall, rightWall, binWall]);
 
-        // --- 4. 建立夾子系統 (Claw) ---
+        // --- 4. 建立自訂圖案的夾子系統 ---
         const clawBase = Bodies.rectangle(400, 50, 60, 20, { 
             isStatic: true, 
             collisionFilter: { group: -1 }, 
-            render: { fillStyle: '#ff7f50' } 
+            render: { fillStyle: '#747d8c' } 
         });
         
-        const clawBody = Bodies.rectangle(400, 120, 40, 40, { 
-            inertia: Infinity, 
+        const clawBody = Bodies.rectangle(400, 140, 50, 40, { 
+            frictionAir: 0.05, // 💡 增加空氣阻力，讓隨機晃動的擺動收斂得更自然
             collisionFilter: { group: -1 },
-            render: { fillStyle: '#ff6b81' } 
+            render: {
+                sprite: {
+                    texture: 'claw.png', 
+                    xScale: 1.0,
+                    yScale: 1.0
+                }
+            }
         });
 
+        // 降低關節剛性 (stiffness: 0.1)，讓天車動的時候，下面的爪子會因為物理效果產生漂亮的「盪鞦韆」延遲感
         const rope = Constraint.create({
             bodyA: clawBase,
             bodyB: clawBody,
             pointB: { x: 0, y: -20 },
-            stiffness: 0.9,
-            render: { strokeStyle: '#ffffff', lineWidth: 3 }
+            stiffness: 0.1, 
+            render: { strokeStyle: '#ffffff', lineWidth: 2 }
         });
         Composite.add(world, [clawBase, clawBody, rope]);
 
-        // --- 5. 生成娃娃堆 ---
-        function spawnDolls() {
-            for (let i = 0; i < 25; i++) {
-                const x = 220 + Math.random() * 500;
-                const y = 300 + Math.random() * 200;
-                const colors = ['#1e90ff', '#2ed573', '#ffa502', '#ff4757', '#9b59b6'];
-                const doll = Bodies.circle(x, y, 25, {
-                    friction: 0.5,
-                    restitution: 0.2,
-                    render: { fillStyle: colors[Math.floor(Math.random() * colors.length)] }
-                });
-                Composite.add(world, doll);
-            }
-        }
-        spawnDolls();
+        // --- 5. 生成唯一一個目標獎品 ---
+        let prizeBox;
+        function spawnSinglePrize() {
+            if (prizeBox) Composite.remove(world, prizeBox);
 
-        // --- 6. 遊戲邏輯與計時器狀態 ---
+            const randomX = 350 + Math.random() * 350; 
+            prizeBox = Bodies.rectangle(randomX, 540, 70, 70, {
+                friction: 0.8,
+                restitution: 0.0, 
+                density: 0.01,    
+                render: {
+                    sprite: {
+                        texture: 'prize.png', 
+                        xScale: 1.0,
+                        yScale: 1.0
+                    }
+                }
+            });
+            Composite.add(world, prizeBox);
+        }
+        spawnSinglePrize();
+
+        // --- 6. 遊戲核心邏輯 ---
         let timeLeft = ROUND_TIME;
         let isClawDropping = false;
         let timerInterval;
@@ -163,20 +177,35 @@
 
         function triggerClawDrop() {
             isClawDropping = true;
-            document.getElementById('status').innerText = '下夾中！請稍候...';
+            document.getElementById('status').innerText = '下夾中！請鎖定畫面！';
             document.getElementById('timer').innerText = `剩餘時間: 0s`;
 
             let dropAnimation = setInterval(() => {
-                if (rope.length < 350) {
-                    rope.length += 5;
+                if (rope.length < 420) {
+                    rope.length += 6;
                 } else {
                     clearInterval(dropAnimation);
-                    setTimeout(() => { resetClaw(); }, 1500);
+                    
+                    // 判定差距（縮小到 22 像素，配合物理擺動，難度提高）
+                    const distanceX = Math.abs(clawBody.position.x - prizeBox.position.x);
+                    let catchConstraint = null;
+                    
+                    if (distanceX < 22 && clawBody.position.y < prizeBox.position.y) {
+                        catchConstraint = Constraint.create({
+                            bodyA: clawBody,
+                            bodyB: prizeBox,
+                            stiffness: 1.0,
+                            render: { visible: false } 
+                        });
+                        Composite.add(world, catchConstraint);
+                    }
+
+                    setTimeout(() => { resetClaw(catchConstraint); }, 1200);
                 }
             }, 10);
         }
 
-        function resetClaw() {
+        function resetClaw(catchConstraint) {
             let liftAnimation = setInterval(() => {
                 if (rope.length > 70) {
                     rope.length -= 5;
@@ -186,54 +215,73 @@
                     let returnAnimation = setInterval(() => {
                         if (clawBase.position.x > 95) {
                             Body.setPosition(clawBase, { x: clawBase.position.x - 4, y: clawBase.position.y });
+                            // 升回時強制微調爪子水平位置，確保獎品能跟著走
                             Body.setPosition(clawBody, { x: clawBody.position.x - 4, y: clawBody.position.y });
+                            if (catchConstraint) {
+                                Body.setPosition(prizeBox, { x: prizeBox.position.x - 4, y: prizeBox.position.y });
+                            }
                         } else {
                             clearInterval(returnAnimation);
-                            showCelebration();
+                            
+                            if (catchConstraint) {
+                                Composite.remove(world, catchConstraint);
+                                setTimeout(() => {
+                                    if (prizeBox.position.x < 180) {
+                                        showCelebration(true);
+                                    } else {
+                                        showCelebration(false); 
+                                    }
+                                }, 1500);
+                            } else {
+                                showCelebration(false); 
+                            }
                         }
                     }, 10);
                 }
             }, 10);
         }
 
-        function showCelebration() {
+        function showCelebration(isSuccess) {
             const announcement = document.getElementById('announcement');
-            announcement.style.display = 'block';
+            if (isSuccess) {
+                announcement.innerHTML = `🎉 完美抓取！！！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span>`;
+                announcement.style.display = 'block';
+            } else {
+                announcement.innerHTML = `❌ 殘念！沒對準...<br><span style="font-size: 24px; color: #fff;">下一局即將開始，大家加油！</span>`;
+                announcement.style.display = 'block';
+            }
             
             setTimeout(() => {
                 announcement.style.display = 'none';
                 Body.setPosition(clawBase, { x: 400, y: 50 });
-                Body.setPosition(clawBody, { x: 400, y: 120 });
+                Body.setPosition(clawBody, { x: 400, y: 140 });
                 rope.length = 70;
                 timeLeft = ROUND_TIME;
                 isClawDropping = false;
                 document.getElementById('status').innerText = '大家一起操控中!';
+                spawnSinglePrize(); 
                 startTimer();
             }, 5000); 
         }
 
-        // --- 7. WebSocket 聊天室接收處理器 (免外部引入，全內嵌安全版) ---
+        // --- 7. WebSocket 聊天室與隨機晃動演算法 ---
         function initTwitchConnection() {
             const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
 
             ws.onopen = () => {
-                console.log('已經成功建立加密安全連線到 Twitch!');
                 ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
-                ws.send('PASS oauth:justinfan12345'); // 匿名登入，不需憑證
+                ws.send('PASS oauth:justinfan12345'); 
                 ws.send('NICK justinfan12345');
                 ws.send(`JOIN #${TWITCH_CHANNEL}`);
             };
 
             ws.onmessage = (event) => {
                 const rawMessage = event.data;
-                
-                // PING-PONG 保持連線不斷線
                 if (rawMessage.startsWith('PING')) {
                     ws.send('PONG :tmi.twitch.tv');
                     return;
                 }
 
-                // 解析聊天室文字指令
                 if (rawMessage.includes('PRIVMSG') && !isClawDropping) {
                     const match = rawMessage.match(/PRIVMSG #[a-z0-9_]+ :(.+)/);
                     if (match) {
@@ -241,33 +289,35 @@
                         let currentX = clawBase.position.x;
                         let currentY = clawBase.position.y;
 
+                        // 💡 核心改動：加入隨機性微調
+                        // 隨機乘數在 0.6 ~ 1.4 之間，讓每次移動步長都不太一樣
+                        const randomMultiplier = 0.6 + Math.random() * 0.8;
+                        let finalSpeed = BASE_SPEED * randomMultiplier;
+
+                        // 10% 的機率爪子會因為慣性產生「微幅反彈」的反向微小作用力
+                        let wobble = (Math.random() < 0.10) ? -2 : 0;
+
                         if (msg === 'a' || msg === '左' || msg === '!left') {
                             if (currentX > 50) {
-                                Body.setPosition(clawBase, { x: currentX - CLAW_SPEED, y: currentY });
-                                Body.setPosition(clawBody, { x: clawBody.position.x - CLAW_SPEED, y: clawBody.position.y });
+                                // 移動天車基座
+                                Body.setPosition(clawBase, { x: currentX - finalSpeed, y: currentY });
+                                // 對下方的物理爪子施加一個側向的力，製造漂亮的晃動感！
+                                Body.setVelocity(clawBody, { x: -(finalSpeed / 2) - wobble, y: clawBody.velocity.y });
                             }
                         }
-                        if (msg === 'd' || msg === '右' || msg === '!right') {
+                        if (msg === 'd' || msg === 'right' || msg === '右' || msg === '!right') {
                             if (currentX < 750) {
-                                Body.setPosition(clawBase, { x: currentX + CLAW_SPEED, y: currentY });
-                                Body.setPosition(clawBody, { x: clawBody.position.x + CLAW_SPEED, y: clawBody.position.y });
+                                Body.setPosition(clawBase, { x: currentX + finalSpeed, y: currentY });
+                                Body.setVelocity(clawBody, { x: (finalSpeed / 2) + wobble, y: clawBody.velocity.y });
                             }
                         }
                     }
                 }
             };
 
-            ws.onclose = () => {
-                console.log('與 Twitch 斷開連線，5秒後自動重新連線...');
-                setTimeout(initTwitchConnection, 5000);
-            };
-
-            ws.onerror = (error) => {
-                console.error('連線發生錯誤：', error);
-            };
+            ws.onclose = () => { setTimeout(initTwitchConnection, 5000); };
         }
 
-        // 啟動連線
         initTwitchConnection();
     </script>
 </body>
