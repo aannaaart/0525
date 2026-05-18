@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Twitch Plays 夾娃娃機</title>
+    <!-- 引入 Matter.js 物理引擎與 tmi.js Twitch 聯網庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            font-family: 'Microsoft JhengHei', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        /* UI 介面樣式 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 讓滑鼠點擊穿透，不干擾遊戲 */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .hud-text {
+            color: #ffffff;
+            font-size: 28px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            background: rgba(0, 0, 0, 0.4);
+            padding: 5px 15px;
+            border-radius: 10px;
+            align-self: center;
+        }
+        #timer { color: #ff4757; font-size: 36px; }
+        #announcement {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ffd32a;
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.9);
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- 物理引擎畫面會渲染在這裡 -->
+        <div id="ui-layer">
+            <div class="hud-text">指令: W A S D 或 上 下 左 右 | 目前狀態: <span id="status">大家一起操控中!</span></div>
+            <div id="timer" class="hud-text">剩餘時間: 30s</div>
+        </div>
+        <div id="announcement">🎉 恭喜抓到神獸布偶！<br><span style="font-size: 24px; color: #fff;">記得點擊下方連結加入願望清單喔！</span></div>
+    </div>
+
+    <script>
+        // --- 1. 設定區 ---
+        const TWITCH_CHANNEL = 'maoramei'; // 💡 請改成你的 Twitch 頻道名稱（小寫）
+        const ROUND_TIME = 30; // 每回合時間 (秒)
+        const CLAW_SPEED = 8;  // 觀眾輸入指令時夾子移動的速度
+
+        // --- 2. 初始化 Matter.js 物理引擎 ---
+        const { Engine, Render, Runner, Bodies, Composite, Constraint, Body } = Matter;
+        const engine = Engine.create();
+        const world = engine.world;
+
+        const render = Render.create({
+            element: document.getElementById('game-container'),
+            engine: engine,
+            options: {
+                width: 800,
+                height: 600,
+                wireframes: false, // 關閉線框模式，顯示實心色彩
+                background: '#2f3542'
+            }
+        });
+        Render.run(render);
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+
+        // --- 3. 建立娃娃機邊界與洞口 ---
+        const ground = Bodies.rectangle(400, 590, 800, 20, { isStatic: true, render: { fillStyle: '#747d8c' } });
+        const leftWall = Bodies.rectangle(10, 300, 20, 600, { isStatic: true, render: { fillStyle: '#747d8c' } });
+        const rightWall = Bodies.rectangle(790, 300, 20, 600, { isStatic: true, render: { fillStyle: '#747d8c' } });
+        // 出貨洞口擋板 (左側留空當洞口)
+        const binWall = Bodies.rectangle(180, 500, 15, 160, { isStatic: true, render: { fillStyle: '#a4b0be' } });
+        Composite.add(world, [ground, leftWall, rightWall, binWall]);
+
+        // --- 4. 建立夾子系統 (Claw) ---
+        // 夾子天車基座 (只在 X 軸移動)
+        const clawBase = Bodies.rectangle(400, 50, 60, 20, { 
+            isStatic: true, 
+            collisionFilter: { group: -1 }, // 不與內部物件碰撞
+            render: { fillStyle: '#ff7f50' } 
+        });
+        
+        // 夾子本體 (抓取點)
+        const clawBody = Bodies.rectangle(400, 120, 40, 40, { 
+            inertia: Infinity, // 防止旋轉
+            collisionFilter: { group: -1 },
+            render: { fillStyle: '#ff6b81' } 
+        });
+
+        // 用彈性關節(線)把基座和夾子本體連起來 (模擬鋼索)
+        const rope = Constraint.create({
+            bodyA: clawBase,
+            bodyB: clawBody,
+            pointB: { x: 0, y: -20 },
+            stiffness: 0.9,
+            render: { strokeStyle: '#ffffff', lineWidth: 3 }
+        });
+        Composite.add(world, [clawBase, clawBody, rope]);
+
+        // --- 5. 生成娃娃堆 ---
+        function spawnDolls() {
+            // 生成 25 個圓形小布偶，模擬堆疊
+            for (let i = 0; i < 25; i++) {
+                const x = 220 + Math.random() * 500;
+                const y = 300 + Math.random() * 200;
+                const colors = ['#1e90ff', '#2ed573', '#ffa502', '#ff4757', '#9b59b6'];
+                const doll = Bodies.circle(x, y, 25, {
+                    friction: 0.5,
+                    restitution: 0.2, // 微彈性
+                    render: { fillStyle: colors[Math.floor(Math.random() * colors.length)] }
+                });
+                Composite.add(world, doll);
+            }
+        }
+        spawnDolls();
+
+        // --- 6. 遊戲邏輯與計時器狀態 ---
+        let timeLeft = ROUND_TIME;
+        let isClawDropping = false;
+        let timerInterval;
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (!isClawDropping) {
+                    timeLeft--;
+                    document.getElementById('timer').innerText = `剩餘時間: ${timeLeft}s`;
+                    if (timeLeft <= 0) {
+                        triggerClawDrop();
+                    }
+                }
+            }, 1000);
+        }
+        startTimer();
+
+        // 觸發下夾子
+        function triggerClawDrop() {
+            isClawDropping = true;
+            document.getElementById('status').innerText = '下夾中！請稍候...';
+            document.getElementById('timer').innerText = `剩餘時間: 0s`;
+
+            // 第一階段：鋼索伸長 (夾子往下衝)
+            let dropAnimation = setInterval(() => {
+                if (rope.length < 350) {
+                    rope.length += 5;
+                } else {
+                    clearInterval(dropAnimation);
+                    // 停留一秒模擬抓取
+                    setTimeout(() => { resetClaw(); }, 1500);
+                }
+            }, 10);
+        }
+
+        // 夾子收回與重置
+        function resetClaw() {
+            // 第二階段：鋼索縮回 (夾子往上升)
+            let liftAnimation = setInterval(() => {
+                if (rope.length > 70) {
+                    rope.length -= 5;
+                } else {
+                    clearInterval(liftAnimation);
+                    
+                    // 第三階段：天車自動返回左側出貨口
+                    let returnAnimation = setInterval(() => {
+                        if (clawBase.position.x > 95) {
+                            Body.setPosition(clawBase, { x: clawBase.position.x - 4, y: clawBase.position.y });
+                            Body.setPosition(clawBody, { x: clawBody.position.x - 4, y: clawBody.position.y });
+                        } else {
+                            clearInterval(returnAnimation);
+                            
+                            // 演出成功特效（整效果，實際判定可依你後續需求加強）
+                            showCelebration();
+                        }
+                    }, 10);
+                }
+            }, 10);
+        }
+
+        function showCelebration() {
+            const announcement = document.getElementById('announcement');
+            announcement.style.display = 'block';
+            
+            setTimeout(() => {
+                announcement.style.display = 'none';
+                // 重置局勢
+                Body.setPosition(clawBase, { x: 400, y: 50 });
+                Body.setPosition(clawBody, { x: 400, y: 120 });
+                rope.length = 70;
+                timeLeft = ROUND_TIME;
+                isClawDropping = false;
+                document.getElementById('status').innerText = '大家一起操控中!';
+                startTimer();
+            }, 5000); // 秀出成功畫面 5 秒後重置下一局
+        }
+
+        // --- 7. 連接 Twitch 聊天室 (tmi.js) ---
+        const client = new tmi.Client({
+            channels: [TWITCH_CHANNEL]
+        });
+        client.connect();
+
+        client.on('message', (channel, tags, message, self) => {
+            if (self || isClawDropping) return; // 如果是機器人自己或正在下夾，不理會
+
+            const msg = message.trim().toLowerCase();
+            let currentX = clawBase.position.x;
+            let currentY = clawBase.position.y;
+
+            // 限制夾子天車的左右移動移動邊界 (不飛出機台)
+            if (msg === 'a' || msg === '左' || msg === '!left') {
+                if (currentX > 50) {
+                    Body.setPosition(clawBase, { x: currentX - CLAW_SPEED, y: currentY });
+                    Body.setPosition(clawBody, { x: clawBody.position.x - CLAW_SPEED, y: clawBody.position.y });
+                }
+            }
+            if (msg === 'd' || msg === '右' || msg === '!right') {
+                if (currentX < 750) {
+                    Body.setPosition(clawBase, { x: currentX + CLAW_SPEED, y: currentY });
+                    Body.setPosition(clawBody, { x: clawBody.position.x + CLAW_SPEED, y: clawBody.position.y });
+                }
+            }
+            
+            // 💡 註：前後移動在 2D 橫向娃娃機中通常對應上下，這裡僅提供左右移動天車。
+            // 如果你想讓觀眾在倒數結束前「提早下夾」，可以把下面這段註解解開：
+            /*
+            if (msg === 's' || msg === '下' || msg === '!drop') {
+                triggerClawDrop();
+            }
+            */
+        });
+    </script>
+</body>
+</html>
