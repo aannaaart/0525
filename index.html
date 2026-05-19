@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Twitch Plays 絲滑順暢娃娃機</title>
+    <title>Twitch Plays 100%絲滑不抖動娃娃機</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body {
@@ -74,7 +74,8 @@
         // --- 1. 設定區 ---
         const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; 
-        const BASE_SPEED = 42; // 保持大暴衝的快樂
+        // 💡 保持超爽快的暴衝大速度
+        const BASE_SPEED = 45; 
 
         // 圖片預載入
         const imgRope = new Image(); imgRope.src = 'rope.png';
@@ -86,8 +87,7 @@
         const engine = Engine.create();
         const world = engine.world;
 
-        // 💡 優化：微調重力，讓大幅度擺動後的物理收斂更穩定，減少微小抖動
-        engine.gravity.y = 1.4; 
+        engine.gravity.y = 1.5; 
 
         const render = Render.create({
             element: document.getElementById('game-container'),
@@ -117,10 +117,9 @@
             render: { fillStyle: '#747d8c' } 
         });
         
-        const clawBody = Bodies.rectangle(400, 150, 50, 40, { 
-            // 💡 關鍵修正：將空氣阻力從 0.01 微調到 0.04
-            // 這樣可以保留大角度盪鞦韆的快感，但會「極快地吸收掉高頻率的細微震動」，徹底根治閃爍！
-            frictionAir: 0.04, 
+        const clawBody = Bodies.rectangle(400, 160, 50, 40, { 
+            // 💡 調整回極低阻力，配合新機制，爪子甩動會變得極度絲滑且盪得很遠！
+            frictionAir: 0.005, 
             collisionFilter: { group: -1 },
             render: {
                 sprite: {
@@ -131,17 +130,17 @@
             }
         });
 
-        // 💡 優化：稍微提高鋼索剛性（從 0.05 到 0.08），防止夾子過度拉扯彈簧線導致的畫面撕裂
+        // 💡 鋼索維持高彈性（0.05），完美的盪鞦韆長度
         const rope = Constraint.create({
             bodyA: clawBase,
             bodyB: clawBody,
             pointB: { x: 0, y: -20 },
-            stiffness: 0.08, 
+            stiffness: 0.05, 
             render: { visible: false } 
         });
         Composite.add(world, [clawBase, clawBody, rope]);
 
-        // 🎨 繩子自訂圖片即時渲染
+        // 🎨 繩子圖片即時渲染
         Events.on(render, 'afterRender', function() {
             const startX = clawBase.position.x;
             const startY = clawBase.position.y;
@@ -245,7 +244,6 @@
                     
                     let returnAnimation = setInterval(() => {
                         if (clawBase.position.x > 95) {
-                            // 💡 優化：放慢返回左側的速度，讓動態過渡更流暢，完全消滅回程時的抖動
                             Body.setPosition(clawBase, { x: clawBase.position.x - 3, y: clawBase.position.y });
                             Body.setPosition(clawBody, { x: clawBody.position.x - 3, y: clawBody.position.y });
                             if (catchConstraint) {
@@ -287,7 +285,7 @@
             setTimeout(() => {
                 announcement.style.display = 'none';
                 Body.setPosition(clawBase, { x: 400, y: 50 });
-                Body.setPosition(clawBody, { x: 400, y: 150 });
+                Body.setPosition(clawBody, { x: 400, y: 160 });
                 rope.length = 70;
                 timeLeft = ROUND_TIME;
                 isClawDropping = false;
@@ -322,20 +320,20 @@
                         let currentX = clawBase.position.x;
                         let currentY = clawBase.position.y;
 
+                        // 每次移動依然有隨機的暴衝幅度 (0.8 到 1.8 倍)
                         const randomMultiplier = 0.8 + Math.random() * 1.0;
                         let finalSpeed = BASE_SPEED * randomMultiplier;
 
                         if (msg === 'a' || msg === '左' || msg === '!left') {
                             if (currentX > 50) {
+                                // 💡 徹底根治發抖：只移動頂部天車（clawBase）
+                                // 刪除了原本會造成衝突的 Body.setVelocity(clawBody)，讓物理引擎純粹靠繩子去「拉動」爪子！
                                 Body.setPosition(clawBase, { x: currentX - finalSpeed, y: currentY });
-                                // 💡 優化：降低指令瞬間給予爪子的橫向速度衝擊（從 18 降到 10），保留物理擺動，但消滅貼圖閃爍
-                                Body.setVelocity(clawBody, { x: -10, y: clawBody.velocity.y });
                             }
                         }
                         if (msg === 'd' || msg === 'right' || msg === '右' || msg === '!right') {
                             if (currentX < 750) {
                                 Body.setPosition(clawBase, { x: currentX + finalSpeed, y: currentY });
-                                Body.setVelocity(clawBody, { x: 10, y: clawBody.velocity.y });
                             }
                         }
                     }
