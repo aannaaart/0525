@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Twitch Plays 瘋狂暴衝大混戰娃娃機</title>
+    <title>Twitch Plays 擬真完全體娃娃機</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body {
@@ -64,25 +64,29 @@
 
     <div id="game-container">
         <div id="ui-layer">
-            <div class="hud-text">指令: A D 或 左 右 | 目前狀態: <span id="status">聊天室大混亂拉鋸中！</span></div>
+            <div class="hud-text">指令: A D 或 左 右 | 目前狀態: <span id="status">大夥們，對準那個箱子！</span></div>
             <div id="timer" class="hud-text">剩餘時間: 30s</div>
         </div>
-        <div id="announcement">🎉 神之操作！居然抓到了！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span></div>
+        <div id="announcement">🎉 神之操作！成功捕獲！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span></div>
     </div>
 
     <script>
         // --- 1. 設定區 ---
         const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; 
-        // 💡 核心改動：將基礎速度從 7 直接拉高到 40！讓天車大幅度暴衝
         const BASE_SPEED = 40; 
 
+        // 🎨 圖片強制預載入機制，徹底解決繩子沒吃到圖的問題
+        const imgRope = new Image(); imgRope.src = 'rope.png';
+        const imgClawOpen = 'claw_open.png';
+        const imgClawClose = 'claw_close.png';
+
         // --- 2. 初始化 Matter.js ---
-        const { Engine, Render, Runner, Bodies, Composite, Constraint, Body } = Matter;
+        const { Engine, Render, Runner, Bodies, Composite, Constraint, Body, Events } = Matter;
         const engine = Engine.create();
         const world = engine.world;
 
-        engine.gravity.y = 1.5; // 提高重力，讓爪子盪鞦韆時的下墜甩動更猛烈
+        engine.gravity.y = 1.5; 
 
         const render = Render.create({
             element: document.getElementById('game-container'),
@@ -113,46 +117,71 @@
         });
         
         const clawBody = Bodies.rectangle(400, 150, 50, 40, { 
-            frictionAir: 0.01, // 💡 降低空氣阻力，讓爪子動完後會「持續晃很久」，增加修正難度
+            frictionAir: 0.01, 
             collisionFilter: { group: -1 },
             render: {
                 sprite: {
-                    texture: 'claw.png', 
+                    texture: imgClawOpen, // 💡 初始狀態：使用張開的爪子
                     xScale: 1.0,
                     yScale: 1.0
                 }
             }
         });
 
-        // 💡 將剛性降到 0.05（極度鬆軟的鋼索），天車一停，爪子會像特技表演一樣大角度甩動
         const rope = Constraint.create({
             bodyA: clawBase,
             bodyB: clawBody,
             pointB: { x: 0, y: -20 },
             stiffness: 0.05, 
-            render: { strokeStyle: '#ffffff', lineWidth: 2 }
+            render: { visible: false } 
         });
         Composite.add(world, [clawBase, clawBody, rope]);
 
-        // --- 5. 生成唯一一個目標獎品 ---
+        // 🎨 繩子自訂圖片即時渲染 (確保 pre-loaded)
+        Events.on(render, 'afterRender', function() {
+            const startX = clawBase.position.x;
+            const startY = clawBase.position.y;
+            const endX = clawBody.position.x;
+            const endY = clawBody.position.y - 20;
+            const ctx = render.context;
+            
+            if (imgRope.complete || imgRope.width > 0) {
+                ctx.save();
+                ctx.beginPath();
+                const dx = endX - startX;
+                const dy = endY - startY;
+                const angle = Math.atan2(dy, dx);
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                ctx.translate(startX, startY);
+                ctx.rotate(angle);
+                // 💡 調整渲染方式，如果圖片較窄，寬度設定為固定 16px 避免拉伸變形
+                ctx.drawImage(imgRope, 0, -8, distance, 16);
+                ctx.restore();
+            }
+        });
+
+        // --- 5. 生成目標獎品 ---
         let prizeBox;
         function spawnSinglePrize() {
-            if (prizeBox) Composite.remove(world, prizeBox);
-
-            const randomX = 350 + Math.random() * 350; 
-            prizeBox = Bodies.rectangle(randomX, 540, 70, 70, {
-                friction: 0.9,
-                restitution: 0.0, 
-                density: 0.02, // 增加重量，非得完美對準否則絕對抓不起    
-                render: {
-                    sprite: {
-                        texture: 'prize.png', 
-                        xScale: 1.0,
-                        yScale: 1.0
+            // 💡 只有在「沒有獎品」或「獎品已經掉進左邊洞裡」的情況下，才在右邊重新生成新的
+            // 這樣如果抓起來失敗、掉在半路上，它依然會留在原地，觀眾下一局可以繼續抓！
+            if (!prizeBox || prizeBox.position.x < 180) {
+                const randomX = 350 + Math.random() * 350; 
+                prizeBox = Bodies.rectangle(randomX, 495, 80, 160, {
+                    friction: 0.9,
+                    restitution: 0.0, 
+                    density: 0.02, 
+                    render: {
+                        sprite: {
+                            texture: 'prize.png', 
+                            xScale: 1.0,
+                            yScale: 1.0
+                        }
                     }
-                }
-            });
-            Composite.add(world, prizeBox);
+                });
+                Composite.add(world, prizeBox);
+            }
         }
         spawnSinglePrize();
 
@@ -181,16 +210,19 @@
             document.getElementById('timer').innerText = `剩餘時間: 0s`;
 
             let dropAnimation = setInterval(() => {
-                if (rope.length < 420) {
+                if (rope.length < 350) { 
                     rope.length += 6;
                 } else {
                     clearInterval(dropAnimation);
                     
-                    // 判定差距（因為會瘋狂晃動，維持 25 像素容錯，讓有對準甩動最高點時也能抓到）
+                    // 💡 關鍵改動：抵達最底部抓取點時，夾子圖片瞬間切換為「合起來（Claw Close）」
+                    clawBody.render.sprite.texture = imgClawClose;
+
                     const distanceX = Math.abs(clawBody.position.x - prizeBox.position.x);
                     let catchConstraint = null;
                     
-                    if (distanceX < 25 && clawBody.position.y < prizeBox.position.y) {
+                    // 檢查獎品是否還沒被收進洞裡，且位置對準了
+                    if (prizeBox.position.x >= 180 && distanceX < 35 && clawBody.position.y < prizeBox.position.y) {
                         catchConstraint = Constraint.create({
                             bodyA: clawBody,
                             bodyB: prizeBox,
@@ -222,13 +254,15 @@
                         } else {
                             clearInterval(returnAnimation);
                             
+                            // 抵達左邊放手點，解除物理吸附
                             if (catchConstraint) {
                                 Composite.remove(world, catchConstraint);
                                 setTimeout(() => {
+                                    // 判斷是否成功進洞
                                     if (prizeBox.position.x < 180) {
                                         showCelebration(true);
                                     } else {
-                                        showCelebration(false); 
+                                        showCelebration(false); // 掉在半路上（會留在原地不消失）
                                     }
                                 }, 1500);
                             } else {
@@ -242,8 +276,12 @@
 
         function showCelebration(isSuccess) {
             const announcement = document.getElementById('announcement');
+            
+            // 💡 回到左上角放開獎品後，夾子恢復成「張開（Claw Open）」的圖片
+            clawBody.render.sprite.texture = imgClawOpen;
+
             if (isSuccess) {
-                announcement.innerHTML = `🎉 神之操作！居然抓到了！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span>`;
+                announcement.innerHTML = `🎉 神之操作！成功捕獲！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span>`;
                 announcement.style.display = 'block';
             } else {
                 announcement.innerHTML = `❌ 殘念爆衝！沒對準...<br><span style="font-size: 24px; color: #fff;">下一局即將開始，大家節奏抓好！</span>`;
@@ -258,12 +296,15 @@
                 timeLeft = ROUND_TIME;
                 isClawDropping = false;
                 document.getElementById('status').innerText = '大家一起操控中!';
+                
+                // 💡 核心改動：每次結束時調用 spawn，但內部邏輯已被修改為「只有進洞才會生新的」
+                // 如果掉在半路上，它會留在原地，下一局大家可以從它掉落的位置繼續夾！
                 spawnSinglePrize(); 
                 startTimer();
             }, 5000); 
         }
 
-        // --- 7. WebSocket 聊天室與瘋狂暴衝演算法 ---
+        // --- 7. WebSocket 聊天室連線 ---
         function initTwitchConnection() {
             const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
 
@@ -288,15 +329,12 @@
                         let currentX = clawBase.position.x;
                         let currentY = clawBase.position.y;
 
-                        // 💡 暴衝隨機性：每次移動的幅度在 0.8 到 1.8 倍基礎速度之間隨機跳動！
                         const randomMultiplier = 0.8 + Math.random() * 1.0;
                         let finalSpeed = BASE_SPEED * randomMultiplier;
 
-                        // 移動時給予爪子強大的物理衝擊力，讓它動起來時瘋狂大幅度晃動
                         if (msg === 'a' || msg === '左' || msg === '!left') {
                             if (currentX > 50) {
                                 Body.setPosition(clawBase, { x: currentX - finalSpeed, y: currentY });
-                                // 給爪子一個巨大的反向加速度，製造猛烈的甩動效果
                                 Body.setVelocity(clawBody, { x: -18, y: clawBody.velocity.y });
                             }
                         }
