@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Twitch Plays 100%絲滑不閃爍娃娃機</title>
+    <title>Twitch Plays 100%絲滑完美娃娃機</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body {
@@ -74,11 +74,13 @@
         // --- 1. 設定區 ---
         const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; 
-        const FORCE_SPEED = 24; // 暴衝推力速度
+        const FORCE_SPEED = 24; 
 
-        const imgRope = 'rope.png';
-        const imgClawOpen = 'claw_open.png';
-        const imgClawClose = 'claw_close.png';
+        // 圖片資源路徑
+        const imgRopeSrc = 'rope.png';
+        const imgClawOpenSrc = 'claw_open.png';
+        const imgClawCloseSrc = 'claw_close.png';
+        const imgPrizeSrc = 'prize.png';
 
         // --- 2. 初始化 Matter.js ---
         const { Engine, Render, Runner, Bodies, Composite, Composites, Constraint, Body, Events } = Matter;
@@ -93,7 +95,7 @@
             options: {
                 width: 800,
                 height: 600,
-                wireframes: false, // 必須為 false 才能看到自訂圖片
+                wireframes: false, // 💡 保持顯示實體貼圖
                 background: '#2f3542'
             }
         });
@@ -116,24 +118,33 @@
         });
         Composite.add(world, clawBase);
 
-        // --- 5. 💡 建立「物理鏈條繩子與爪子系統」 ---
-        // 我們直接用物理骨架生成 7 節相連的短繩索，每節都會吃你的 rope.png，徹底根治渲染衝突！
+        // --- 5. 建立鏈條繩子系統 ---
         const ropeSegmentCount = 7;
         const ropeChain = Composites.stack(400, 60, 1, ropeSegmentCount, 0, 0, function(x, y) {
-            return Bodies.rectangle(x, y, 16, 20, { 
-                collisionFilter: { group: -1 }, // 繩子互不碰撞
+            const segment = Bodies.rectangle(x, y, 16, 20, { 
+                collisionFilter: { group: -1 }, 
                 frictionAir: 0.01,
                 render: {
                     sprite: {
-                        texture: imgRope, // 💡 每一節都會完美吃你的繩子貼圖！
+                        texture: imgRopeSrc,
                         xScale: 1.0,
                         yScale: 1.0
                     }
                 }
             });
+            
+            // 💡 修正核心：當繩子圖片加載完成後，精確計算縮放比，徹底消滅顫抖
+            const img = new Image();
+            img.src = imgRopeSrc;
+            img.onload = function() {
+                if(segment.render.sprite) {
+                    segment.render.sprite.xScale = 16 / img.width;
+                    segment.render.sprite.yScale = 20 / img.height;
+                }
+            };
+            return segment;
         });
 
-        // 將這 7 節短繩索用物理關節銲接在一起
         Composites.chain(ropeChain, 0, 0.5, 0, -0.5, { 
             stiffness: 0.8, 
             length: 2,
@@ -141,7 +152,6 @@
         });
         Composite.add(world, ropeChain);
 
-        // 將繩子頂端綁在天車上
         const topConnect = Constraint.create({
             bodyA: clawBase,
             bodyB: ropeChain.bodies[0],
@@ -152,12 +162,12 @@
         Composite.add(world, topConnect);
 
         // 建立爪子本體
-        const clawBody = Bodies.rectangle(400, 220, 50, 40, { 
+        const clawBody = Bodies.rectangle(400, 220, 60, 60, { 
             frictionAir: 0.01, 
             collisionFilter: { group: -1 },
             render: {
                 sprite: {
-                    texture: imgClawOpen, 
+                    texture: imgClawOpenSrc, 
                     xScale: 1.0,
                     yScale: 1.0
                 }
@@ -165,18 +175,29 @@
         });
         Composite.add(world, clawBody);
 
-        // 將爪子綁在繩子的最末端
+        // 💡 修正核心：自動將你的爪子貼圖等比例縮放到物理碰撞箱的 60x60 大小
+        function updateClawTexture(src) {
+            clawBody.render.sprite.texture = src;
+            const img = new Image();
+            img.src = src;
+            img.onload = function() {
+                clawBody.render.sprite.xScale = 60 / img.width;
+                clawBody.render.sprite.yScale = 60 / img.height;
+            };
+        }
+        updateClawTexture(imgClawOpenSrc);
+
         const bottomConnect = Constraint.create({
             bodyA: ropeChain.bodies[ropeChain.bodies.length - 1],
             bodyB: clawBody,
             pointA: { x: 0, y: 10 },
-            pointB: { x: 0, y: -20 },
+            pointB: { x: 0, y: -30 },
             stiffness: 0.9,
             render: { visible: false }
         });
         Composite.add(world, bottomConnect);
 
-        // 每格畫面強制鎖定天車 Y 軸，並限制邊界
+        // 每格畫面鎖定天車 Y 軸與邊界
         Events.on(engine, 'beforeUpdate', function() {
             Body.setPosition(clawBase, { x: clawBase.position.x, y: 40 });
             Body.setVelocity(clawBase, { x: clawBase.velocity.x, y: 0 });
@@ -185,7 +206,7 @@
             if (clawBase.position.x > 750) Body.setPosition(clawBase, { x: 750, y: 40 });
         });
 
-        // --- 6. 生成目標獎品 ---
+        // --- 6. 生成目標獎品 (80 * 160 px) ---
         let prizeBox;
         function spawnSinglePrize() {
             if (!prizeBox || prizeBox.position.x < 180) {
@@ -196,12 +217,24 @@
                     density: 0.02, 
                     render: {
                         sprite: {
-                            texture: 'prize.png', 
+                            texture: imgPrizeSrc, 
                             xScale: 1.0,
                             yScale: 1.0
                         }
                     }
                 });
+                
+                // 💡 修正核心：強制將你的獎品圖片精確縮放到物理盒子的 80x160 大小
+                // 這樣物理引擎就不會因為「圖比箱子大」而瘋狂閃爍錯位了！
+                const img = new Image();
+                img.src = imgPrizeSrc;
+                img.onload = function() {
+                    if (prizeBox.render.sprite) {
+                        prizeBox.render.sprite.xScale = 80 / img.width;
+                        prizeBox.render.sprite.yScale = 160 / img.height;
+                    }
+                };
+                
                 Composite.add(world, prizeBox);
             }
         }
@@ -226,7 +259,6 @@
         }
         startTimer();
 
-        // 下夾動畫核心：直接透過「拉長每一節鏈條的間距」來完美達成物理伸長！
         function triggerClawDrop() {
             isClawDropping = true;
             document.getElementById('status').innerText = '下夾中！看命運的安排！';
@@ -234,7 +266,6 @@
 
             Body.setVelocity(clawBase, { x: 0, y: 0 });
 
-            // 取得鏈條之間所有的約束關節，並逐漸拉長它們
             const constraints = ropeChain.constraints;
             let currentLen = 2;
 
@@ -247,7 +278,8 @@
                 } else {
                     clearInterval(dropAnimation);
                     
-                    clawBody.render.sprite.texture = imgClawClose;
+                    // 切換為閉合爪子並自動修正大小
+                    updateClawTexture(imgClawCloseSrc);
 
                     const distanceX = Math.abs(clawBody.position.x - prizeBox.position.x);
                     let catchConstraint = null;
@@ -307,7 +339,7 @@
 
         function showCelebration(isSuccess) {
             const announcement = document.getElementById('announcement');
-            clawBody.render.sprite.texture = imgClawOpen;
+            updateClawTexture(imgClawOpenSrc);
 
             if (isSuccess) {
                 announcement.innerHTML = `🎉 神之操作！成功捕獲！<br><span style="font-size: 24px; color: #fff;">快點擊下方連結加入 Steam 願望清單！</span>`;
@@ -320,7 +352,6 @@
             setTimeout(() => {
                 announcement.style.display = 'none';
                 
-                // 完全重置
                 Body.setPosition(clawBase, { x: 400, y: 40 });
                 Body.setVelocity(clawBase, { x: 0, y: 0 });
                 
@@ -328,7 +359,6 @@
                 topConnect.length = 2;
                 bottomConnect.length = 2;
                 
-                // 重置每一節鏈條的位置
                 for(let i=0; i<ropeChain.bodies.length; i++) {
                     Body.setPosition(ropeChain.bodies[i], { x: 400, y: 60 + (i * 20) });
                     Body.setVelocity(ropeChain.bodies[i], { x: 0, y: 0 });
