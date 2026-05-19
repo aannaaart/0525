@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Twitch Plays 擬真完全體娃娃機</title>
+    <title>Twitch Plays 絲滑順暢娃娃機</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body {
@@ -74,9 +74,9 @@
         // --- 1. 設定區 ---
         const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; 
-        const BASE_SPEED = 40; 
+        const BASE_SPEED = 42; // 保持大暴衝的快樂
 
-        // 🎨 圖片強制預載入機制，徹底解決繩子沒吃到圖的問題
+        // 圖片預載入
         const imgRope = new Image(); imgRope.src = 'rope.png';
         const imgClawOpen = 'claw_open.png';
         const imgClawClose = 'claw_close.png';
@@ -86,7 +86,8 @@
         const engine = Engine.create();
         const world = engine.world;
 
-        engine.gravity.y = 1.5; 
+        // 💡 優化：微調重力，讓大幅度擺動後的物理收斂更穩定，減少微小抖動
+        engine.gravity.y = 1.4; 
 
         const render = Render.create({
             element: document.getElementById('game-container'),
@@ -109,7 +110,7 @@
         const binWall = Bodies.rectangle(180, 500, 15, 160, { isStatic: true, render: { fillStyle: '#a4b0be' } });
         Composite.add(world, [ground, leftWall, rightWall, binWall]);
 
-        // --- 4. 建立自訂圖案的夾子系統 ---
+        // --- 4. 建立夾子系統 ---
         const clawBase = Bodies.rectangle(400, 50, 60, 20, { 
             isStatic: true, 
             collisionFilter: { group: -1 }, 
@@ -117,27 +118,30 @@
         });
         
         const clawBody = Bodies.rectangle(400, 150, 50, 40, { 
-            frictionAir: 0.01, 
+            // 💡 關鍵修正：將空氣阻力從 0.01 微調到 0.04
+            // 這樣可以保留大角度盪鞦韆的快感，但會「極快地吸收掉高頻率的細微震動」，徹底根治閃爍！
+            frictionAir: 0.04, 
             collisionFilter: { group: -1 },
             render: {
                 sprite: {
-                    texture: imgClawOpen, // 💡 初始狀態：使用張開的爪子
+                    texture: imgClawOpen, 
                     xScale: 1.0,
                     yScale: 1.0
                 }
             }
         });
 
+        // 💡 優化：稍微提高鋼索剛性（從 0.05 到 0.08），防止夾子過度拉扯彈簧線導致的畫面撕裂
         const rope = Constraint.create({
             bodyA: clawBase,
             bodyB: clawBody,
             pointB: { x: 0, y: -20 },
-            stiffness: 0.05, 
+            stiffness: 0.08, 
             render: { visible: false } 
         });
         Composite.add(world, [clawBase, clawBody, rope]);
 
-        // 🎨 繩子自訂圖片即時渲染 (確保 pre-loaded)
+        // 🎨 繩子自訂圖片即時渲染
         Events.on(render, 'afterRender', function() {
             const startX = clawBase.position.x;
             const startY = clawBase.position.y;
@@ -155,7 +159,6 @@
 
                 ctx.translate(startX, startY);
                 ctx.rotate(angle);
-                // 💡 調整渲染方式，如果圖片較窄，寬度設定為固定 16px 避免拉伸變形
                 ctx.drawImage(imgRope, 0, -8, distance, 16);
                 ctx.restore();
             }
@@ -164,8 +167,6 @@
         // --- 5. 生成目標獎品 ---
         let prizeBox;
         function spawnSinglePrize() {
-            // 💡 只有在「沒有獎品」或「獎品已經掉進左邊洞裡」的情況下，才在右邊重新生成新的
-            // 這樣如果抓起來失敗、掉在半路上，它依然會留在原地，觀眾下一局可以繼續抓！
             if (!prizeBox || prizeBox.position.x < 180) {
                 const randomX = 350 + Math.random() * 350; 
                 prizeBox = Bodies.rectangle(randomX, 495, 80, 160, {
@@ -215,13 +216,11 @@
                 } else {
                     clearInterval(dropAnimation);
                     
-                    // 💡 關鍵改動：抵達最底部抓取點時，夾子圖片瞬間切換為「合起來（Claw Close）」
                     clawBody.render.sprite.texture = imgClawClose;
 
                     const distanceX = Math.abs(clawBody.position.x - prizeBox.position.x);
                     let catchConstraint = null;
                     
-                    // 檢查獎品是否還沒被收進洞裡，且位置對準了
                     if (prizeBox.position.x >= 180 && distanceX < 35 && clawBody.position.y < prizeBox.position.y) {
                         catchConstraint = Constraint.create({
                             bodyA: clawBody,
@@ -246,23 +245,22 @@
                     
                     let returnAnimation = setInterval(() => {
                         if (clawBase.position.x > 95) {
-                            Body.setPosition(clawBase, { x: clawBase.position.x - 5, y: clawBase.position.y });
-                            Body.setPosition(clawBody, { x: clawBody.position.x - 5, y: clawBody.position.y });
+                            // 💡 優化：放慢返回左側的速度，讓動態過渡更流暢，完全消滅回程時的抖動
+                            Body.setPosition(clawBase, { x: clawBase.position.x - 3, y: clawBase.position.y });
+                            Body.setPosition(clawBody, { x: clawBody.position.x - 3, y: clawBody.position.y });
                             if (catchConstraint) {
-                                Body.setPosition(prizeBox, { x: prizeBox.position.x - 5, y: prizeBox.position.y });
+                                Body.setPosition(prizeBox, { x: prizeBox.position.x - 3, y: prizeBox.position.y });
                             }
                         } else {
                             clearInterval(returnAnimation);
                             
-                            // 抵達左邊放手點，解除物理吸附
                             if (catchConstraint) {
                                 Composite.remove(world, catchConstraint);
                                 setTimeout(() => {
-                                    // 判斷是否成功進洞
                                     if (prizeBox.position.x < 180) {
                                         showCelebration(true);
                                     } else {
-                                        showCelebration(false); // 掉在半路上（會留在原地不消失）
+                                        showCelebration(false); 
                                     }
                                 }, 1500);
                             } else {
@@ -276,8 +274,6 @@
 
         function showCelebration(isSuccess) {
             const announcement = document.getElementById('announcement');
-            
-            // 💡 回到左上角放開獎品後，夾子恢復成「張開（Claw Open）」的圖片
             clawBody.render.sprite.texture = imgClawOpen;
 
             if (isSuccess) {
@@ -296,9 +292,6 @@
                 timeLeft = ROUND_TIME;
                 isClawDropping = false;
                 document.getElementById('status').innerText = '大家一起操控中!';
-                
-                // 💡 核心改動：每次結束時調用 spawn，但內部邏輯已被修改為「只有進洞才會生新的」
-                // 如果掉在半路上，它會留在原地，下一局大家可以從它掉落的位置繼續夾！
                 spawnSinglePrize(); 
                 startTimer();
             }, 5000); 
@@ -335,13 +328,14 @@
                         if (msg === 'a' || msg === '左' || msg === '!left') {
                             if (currentX > 50) {
                                 Body.setPosition(clawBase, { x: currentX - finalSpeed, y: currentY });
-                                Body.setVelocity(clawBody, { x: -18, y: clawBody.velocity.y });
+                                // 💡 優化：降低指令瞬間給予爪子的橫向速度衝擊（從 18 降到 10），保留物理擺動，但消滅貼圖閃爍
+                                Body.setVelocity(clawBody, { x: -10, y: clawBody.velocity.y });
                             }
                         }
                         if (msg === 'd' || msg === 'right' || msg === '右' || msg === '!right') {
                             if (currentX < 750) {
                                 Body.setPosition(clawBase, { x: currentX + finalSpeed, y: currentY });
-                                Body.setVelocity(clawBody, { x: 18, y: clawBody.velocity.y });
+                                Body.setVelocity(clawBody, { x: 10, y: clawBody.velocity.y });
                             }
                         }
                     }
