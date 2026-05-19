@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Twitch Plays 100%絲滑不抖動娃娃機</title>
+    <title>Twitch Plays 100%絲滑不閃爍娃娃機</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body {
@@ -74,16 +74,14 @@
         // --- 1. 設定區 ---
         const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; 
-        // 💡 物理化後的推力速度（數值越大，推得越猛、暴衝越厲害）
-        const FORCE_SPEED = 24; 
+        const FORCE_SPEED = 24; // 暴衝推力速度
 
-        // 圖片預載入
-        const imgRope = new Image(); imgRope.src = 'rope.png';
+        const imgRope = 'rope.png';
         const imgClawOpen = 'claw_open.png';
         const imgClawClose = 'claw_close.png';
 
         // --- 2. 初始化 Matter.js ---
-        const { Engine, Render, Runner, Bodies, Composite, Constraint, Body, Events } = Matter;
+        const { Engine, Render, Runner, Bodies, Composite, Composites, Constraint, Body, Events } = Matter;
         const engine = Engine.create();
         const world = engine.world;
 
@@ -95,7 +93,7 @@
             options: {
                 width: 800,
                 height: 600,
-                wireframes: false, 
+                wireframes: false, // 必須為 false 才能看到自訂圖片
                 background: '#2f3542'
             }
         });
@@ -110,16 +108,52 @@
         const binWall = Bodies.rectangle(180, 500, 15, 160, { isStatic: true, render: { fillStyle: '#a4b0be' } });
         Composite.add(world, [ground, leftWall, rightWall, binWall]);
 
-        // --- 4. 建立「全物理化」的夾子系統 ---
-        // 💡 關鍵變更：天車不再是 static！它現在是一個有質量的滑塊
-        const clawBase = Bodies.rectangle(400, 50, 60, 20, { 
-            frictionAir: 0.15, // 給天車較高的空氣阻力，讓它被推完後能快速停下，方便精準定位
+        // --- 4. 建立天車基座 ---
+        const clawBase = Bodies.rectangle(400, 40, 60, 20, { 
+            frictionAir: 0.15, 
             collisionFilter: { group: -1 }, 
             render: { fillStyle: '#747d8c' } 
         });
-        
-        const clawBody = Bodies.rectangle(400, 160, 50, 40, { 
-            frictionAir: 0.01, // 讓爪子保持低阻力，盪鞦韆盪得很瘋狂
+        Composite.add(world, clawBase);
+
+        // --- 5. 💡 建立「物理鏈條繩子與爪子系統」 ---
+        // 我們直接用物理骨架生成 7 節相連的短繩索，每節都會吃你的 rope.png，徹底根治渲染衝突！
+        const ropeSegmentCount = 7;
+        const ropeChain = Composites.stack(400, 60, 1, ropeSegmentCount, 0, 0, function(x, y) {
+            return Bodies.rectangle(x, y, 16, 20, { 
+                collisionFilter: { group: -1 }, // 繩子互不碰撞
+                frictionAir: 0.01,
+                render: {
+                    sprite: {
+                        texture: imgRope, // 💡 每一節都會完美吃你的繩子貼圖！
+                        xScale: 1.0,
+                        yScale: 1.0
+                    }
+                }
+            });
+        });
+
+        // 將這 7 節短繩索用物理關節銲接在一起
+        Composites.chain(ropeChain, 0, 0.5, 0, -0.5, { 
+            stiffness: 0.8, 
+            length: 2,
+            render: { visible: false } 
+        });
+        Composite.add(world, ropeChain);
+
+        // 將繩子頂端綁在天車上
+        const topConnect = Constraint.create({
+            bodyA: clawBase,
+            bodyB: ropeChain.bodies[0],
+            pointB: { x: 0, y: -10 },
+            stiffness: 0.9,
+            render: { visible: false }
+        });
+        Composite.add(world, topConnect);
+
+        // 建立爪子本體
+        const clawBody = Bodies.rectangle(400, 220, 50, 40, { 
+            frictionAir: 0.01, 
             collisionFilter: { group: -1 },
             render: {
                 sprite: {
@@ -129,51 +163,29 @@
                 }
             }
         });
+        Composite.add(world, clawBody);
 
-        // 繩子連結
-        const rope = Constraint.create({
-            bodyA: clawBase,
+        // 將爪子綁在繩子的最末端
+        const bottomConnect = Constraint.create({
+            bodyA: ropeChain.bodies[ropeChain.bodies.length - 1],
             bodyB: clawBody,
+            pointA: { x: 0, y: 10 },
             pointB: { x: 0, y: -20 },
-            stiffness: 0.1, // 稍微提高一點鋼索剛性，擺動起來更扎實
-            render: { visible: false } 
+            stiffness: 0.9,
+            render: { visible: false }
         });
-        Composite.add(world, [clawBase, clawBody, rope]);
+        Composite.add(world, bottomConnect);
 
-        // 💡 核心修正：天車如果會掉下去就完蛋了，所以每一格畫面都要強制把天車鎖定在 Y=50 的高度，只允許它左右滑動
+        // 每格畫面強制鎖定天車 Y 軸，並限制邊界
         Events.on(engine, 'beforeUpdate', function() {
-            Body.setPosition(clawBase, { x: clawBase.position.x, y: 50 });
+            Body.setPosition(clawBase, { x: clawBase.position.x, y: 40 });
             Body.setVelocity(clawBase, { x: clawBase.velocity.x, y: 0 });
 
-            // 防止天車飛出邊界
-            if (clawBase.position.x < 50) Body.setPosition(clawBase, { x: 50, y: 50 });
-            if (clawBase.position.x > 750) Body.setPosition(clawBase, { x: 750, y: 50 });
+            if (clawBase.position.x < 50) Body.setPosition(clawBase, { x: 50, y: 40 });
+            if (clawBase.position.x > 750) Body.setPosition(clawBase, { x: 750, y: 40 });
         });
 
-        // 🎨 繩子圖片即時渲染
-        Events.on(render, 'afterRender', function() {
-            const startX = clawBase.position.x;
-            const startY = clawBase.position.y;
-            const endX = clawBody.position.x;
-            const endY = clawBody.position.y - 20;
-            const ctx = render.context;
-            
-            if (imgRope.complete || imgRope.width > 0) {
-                ctx.save();
-                ctx.beginPath();
-                const dx = endX - startX;
-                const dy = endY - startY;
-                const angle = Math.atan2(dy, dx);
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                ctx.translate(startX, startY);
-                ctx.rotate(angle);
-                ctx.drawImage(imgRope, 0, -8, distance, 16);
-                ctx.restore();
-            }
-        });
-
-        // --- 5. 生成目標獎品 ---
+        // --- 6. 生成目標獎品 ---
         let prizeBox;
         function spawnSinglePrize() {
             if (!prizeBox || prizeBox.position.x < 180) {
@@ -195,7 +207,7 @@
         }
         spawnSinglePrize();
 
-        // --- 6. 遊戲核心邏輯 ---
+        // --- 7. 遊戲核心邏輯 ---
         let timeLeft = ROUND_TIME;
         let isClawDropping = false;
         let timerInterval;
@@ -214,17 +226,24 @@
         }
         startTimer();
 
+        // 下夾動畫核心：直接透過「拉長每一節鏈條的間距」來完美達成物理伸長！
         function triggerClawDrop() {
             isClawDropping = true;
             document.getElementById('status').innerText = '下夾中！看命運的安排！';
             document.getElementById('timer').innerText = `剩餘時間: 0s`;
 
-            // 下夾時，強制將天車的速度歸零，不讓它一邊下夾一邊左右亂滑
             Body.setVelocity(clawBase, { x: 0, y: 0 });
 
+            // 取得鏈條之間所有的約束關節，並逐漸拉長它們
+            const constraints = ropeChain.constraints;
+            let currentLen = 2;
+
             let dropAnimation = setInterval(() => {
-                if (rope.length < 350) { 
-                    rope.length += 6;
+                if (currentLen < 36) {
+                    currentLen += 1;
+                    constraints.forEach(c => c.length = currentLen);
+                    topConnect.length = currentLen;
+                    bottomConnect.length = currentLen;
                 } else {
                     clearInterval(dropAnimation);
                     
@@ -233,7 +252,7 @@
                     const distanceX = Math.abs(clawBody.position.x - prizeBox.position.x);
                     let catchConstraint = null;
                     
-                    if (prizeBox.position.x >= 180 && distanceX < 35 && clawBody.position.y < prizeBox.position.y) {
+                    if (prizeBox.position.x >= 180 && distanceX < 45 && clawBody.position.y < prizeBox.position.y) {
                         catchConstraint = Constraint.create({
                             bodyA: clawBody,
                             bodyB: prizeBox,
@@ -245,17 +264,22 @@
 
                     setTimeout(() => { resetClaw(catchConstraint); }, 1200);
                 }
-            }, 10);
+            }, 20);
         }
 
         function resetClaw(catchConstraint) {
+            const constraints = ropeChain.constraints;
+            let currentLen = 36;
+
             let liftAnimation = setInterval(() => {
-                if (rope.length > 70) {
-                    rope.length -= 5;
+                if (currentLen > 2) {
+                    currentLen -= 1;
+                    constraints.forEach(c => c.length = currentLen);
+                    topConnect.length = currentLen;
+                    bottomConnect.length = currentLen;
                 } else {
                     clearInterval(liftAnimation);
                     
-                    // 💡 返回左側出貨口：改用給予天車一個穩定的左移速度，而不是暴力設定位置
                     let returnAnimation = setInterval(() => {
                         if (clawBase.position.x > 95) {
                             Body.setVelocity(clawBase, { x: -4, y: 0 });
@@ -278,7 +302,7 @@
                         }
                     }, 10);
                 }
-            }, 10);
+            }, 20);
         }
 
         function showCelebration(isSuccess) {
@@ -295,13 +319,24 @@
             
             setTimeout(() => {
                 announcement.style.display = 'none';
-                // 重置位置
-                Body.setPosition(clawBase, { x: 400, y: 50 });
+                
+                // 完全重置
+                Body.setPosition(clawBase, { x: 400, y: 40 });
                 Body.setVelocity(clawBase, { x: 0, y: 0 });
-                Body.setPosition(clawBody, { x: 400, y: 160 });
+                
+                ropeChain.constraints.forEach(c => c.length = 2);
+                topConnect.length = 2;
+                bottomConnect.length = 2;
+                
+                // 重置每一節鏈條的位置
+                for(let i=0; i<ropeChain.bodies.length; i++) {
+                    Body.setPosition(ropeChain.bodies[i], { x: 400, y: 60 + (i * 20) });
+                    Body.setVelocity(ropeChain.bodies[i], { x: 0, y: 0 });
+                }
+
+                Body.setPosition(clawBody, { x: 400, y: 220 });
                 Body.setVelocity(clawBody, { x: 0, y: 0 });
-                rope.length = 70;
-                timeLeft = ROUND_TIME;
+                
                 isClawDropping = false;
                 document.getElementById('status').innerText = '大家一起操控中!';
                 spawnSinglePrize(); 
@@ -309,7 +344,7 @@
             }, 5000); 
         }
 
-        // --- 7. WebSocket 聊天室連線 ---
+        // --- 8. WebSocket 聊天室連線 ---
         function initTwitchConnection() {
             const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
 
@@ -332,17 +367,18 @@
                     if (match) {
                         const msg = match[1].trim().toLowerCase();
 
-                        // 每次移動依然有隨機的推力幅度
                         const randomMultiplier = 0.8 + Math.random() * 1.0;
                         let finalSpeed = FORCE_SPEED * randomMultiplier;
 
                         if (msg === 'a' || msg === '左' || msg === '!left') {
-                            // 💡 終極改動：改用 Body.setVelocity 直接賦予天車滑塊向左的速度！
-                            // 徹底告別 SetPosition 帶來的像素級發抖，回歸純物理模擬。
-                            Body.setVelocity(clawBase, { x: -finalSpeed, y: 0 });
+                            if (clawBase.position.x > 50) {
+                                Body.setVelocity(clawBase, { x: -finalSpeed, y: 0 });
+                            }
                         }
                         if (msg === 'd' || msg === 'right' || msg === '右' || msg === '!right') {
-                            Body.setVelocity(clawBase, { x: finalSpeed, y: 0 });
+                            if (clawBase.position.x < 750) {
+                                Body.setVelocity(clawBase, { x: finalSpeed, y: 0 });
+                            }
                         }
                     }
                 }
