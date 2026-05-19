@@ -74,8 +74,8 @@
         // --- 1. 設定區 ---
         const TWITCH_CHANNEL = 'maoramei'; 
         const ROUND_TIME = 30; 
-        // 💡 保持超爽快的暴衝大速度
-        const BASE_SPEED = 45; 
+        // 💡 物理化後的推力速度（數值越大，推得越猛、暴衝越厲害）
+        const FORCE_SPEED = 24; 
 
         // 圖片預載入
         const imgRope = new Image(); imgRope.src = 'rope.png';
@@ -110,16 +110,16 @@
         const binWall = Bodies.rectangle(180, 500, 15, 160, { isStatic: true, render: { fillStyle: '#a4b0be' } });
         Composite.add(world, [ground, leftWall, rightWall, binWall]);
 
-        // --- 4. 建立夾子系統 ---
+        // --- 4. 建立「全物理化」的夾子系統 ---
+        // 💡 關鍵變更：天車不再是 static！它現在是一個有質量的滑塊
         const clawBase = Bodies.rectangle(400, 50, 60, 20, { 
-            isStatic: true, 
+            frictionAir: 0.15, // 給天車較高的空氣阻力，讓它被推完後能快速停下，方便精準定位
             collisionFilter: { group: -1 }, 
             render: { fillStyle: '#747d8c' } 
         });
         
         const clawBody = Bodies.rectangle(400, 160, 50, 40, { 
-            // 💡 調整回極低阻力，配合新機制，爪子甩動會變得極度絲滑且盪得很遠！
-            frictionAir: 0.005, 
+            frictionAir: 0.01, // 讓爪子保持低阻力，盪鞦韆盪得很瘋狂
             collisionFilter: { group: -1 },
             render: {
                 sprite: {
@@ -130,15 +130,25 @@
             }
         });
 
-        // 💡 鋼索維持高彈性（0.05），完美的盪鞦韆長度
+        // 繩子連結
         const rope = Constraint.create({
             bodyA: clawBase,
             bodyB: clawBody,
             pointB: { x: 0, y: -20 },
-            stiffness: 0.05, 
+            stiffness: 0.1, // 稍微提高一點鋼索剛性，擺動起來更扎實
             render: { visible: false } 
         });
         Composite.add(world, [clawBase, clawBody, rope]);
+
+        // 💡 核心修正：天車如果會掉下去就完蛋了，所以每一格畫面都要強制把天車鎖定在 Y=50 的高度，只允許它左右滑動
+        Events.on(engine, 'beforeUpdate', function() {
+            Body.setPosition(clawBase, { x: clawBase.position.x, y: 50 });
+            Body.setVelocity(clawBase, { x: clawBase.velocity.x, y: 0 });
+
+            // 防止天車飛出邊界
+            if (clawBase.position.x < 50) Body.setPosition(clawBase, { x: 50, y: 50 });
+            if (clawBase.position.x > 750) Body.setPosition(clawBase, { x: 750, y: 50 });
+        });
 
         // 🎨 繩子圖片即時渲染
         Events.on(render, 'afterRender', function() {
@@ -209,6 +219,9 @@
             document.getElementById('status').innerText = '下夾中！看命運的安排！';
             document.getElementById('timer').innerText = `剩餘時間: 0s`;
 
+            // 下夾時，強制將天車的速度歸零，不讓它一邊下夾一邊左右亂滑
+            Body.setVelocity(clawBase, { x: 0, y: 0 });
+
             let dropAnimation = setInterval(() => {
                 if (rope.length < 350) { 
                     rope.length += 6;
@@ -242,15 +255,13 @@
                 } else {
                     clearInterval(liftAnimation);
                     
+                    // 💡 返回左側出貨口：改用給予天車一個穩定的左移速度，而不是暴力設定位置
                     let returnAnimation = setInterval(() => {
                         if (clawBase.position.x > 95) {
-                            Body.setPosition(clawBase, { x: clawBase.position.x - 3, y: clawBase.position.y });
-                            Body.setPosition(clawBody, { x: clawBody.position.x - 3, y: clawBody.position.y });
-                            if (catchConstraint) {
-                                Body.setPosition(prizeBox, { x: prizeBox.position.x - 3, y: prizeBox.position.y });
-                            }
+                            Body.setVelocity(clawBase, { x: -4, y: 0 });
                         } else {
                             clearInterval(returnAnimation);
+                            Body.setVelocity(clawBase, { x: 0, y: 0 });
                             
                             if (catchConstraint) {
                                 Composite.remove(world, catchConstraint);
@@ -284,8 +295,11 @@
             
             setTimeout(() => {
                 announcement.style.display = 'none';
+                // 重置位置
                 Body.setPosition(clawBase, { x: 400, y: 50 });
+                Body.setVelocity(clawBase, { x: 0, y: 0 });
                 Body.setPosition(clawBody, { x: 400, y: 160 });
+                Body.setVelocity(clawBody, { x: 0, y: 0 });
                 rope.length = 70;
                 timeLeft = ROUND_TIME;
                 isClawDropping = false;
@@ -317,24 +331,18 @@
                     const match = rawMessage.match(/PRIVMSG #[a-z0-9_]+ :(.+)/);
                     if (match) {
                         const msg = match[1].trim().toLowerCase();
-                        let currentX = clawBase.position.x;
-                        let currentY = clawBase.position.y;
 
-                        // 每次移動依然有隨機的暴衝幅度 (0.8 到 1.8 倍)
+                        // 每次移動依然有隨機的推力幅度
                         const randomMultiplier = 0.8 + Math.random() * 1.0;
-                        let finalSpeed = BASE_SPEED * randomMultiplier;
+                        let finalSpeed = FORCE_SPEED * randomMultiplier;
 
                         if (msg === 'a' || msg === '左' || msg === '!left') {
-                            if (currentX > 50) {
-                                // 💡 徹底根治發抖：只移動頂部天車（clawBase）
-                                // 刪除了原本會造成衝突的 Body.setVelocity(clawBody)，讓物理引擎純粹靠繩子去「拉動」爪子！
-                                Body.setPosition(clawBase, { x: currentX - finalSpeed, y: currentY });
-                            }
+                            // 💡 終極改動：改用 Body.setVelocity 直接賦予天車滑塊向左的速度！
+                            // 徹底告別 SetPosition 帶來的像素級發抖，回歸純物理模擬。
+                            Body.setVelocity(clawBase, { x: -finalSpeed, y: 0 });
                         }
                         if (msg === 'd' || msg === 'right' || msg === '右' || msg === '!right') {
-                            if (currentX < 750) {
-                                Body.setPosition(clawBase, { x: currentX + finalSpeed, y: currentY });
-                            }
+                            Body.setVelocity(clawBase, { x: finalSpeed, y: 0 });
                         }
                     }
                 }
